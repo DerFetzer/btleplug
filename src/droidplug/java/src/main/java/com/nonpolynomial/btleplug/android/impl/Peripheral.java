@@ -37,7 +37,7 @@ class Peripheral {
     private CommandCallback commandCallback;
 
     public Peripheral(Adapter adapter, String address) {
-        this.device = BluetoothAdapter.getAdapter().getRemoteDevice(address);
+        this.device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address);
         this.adapter = adapter;
         this.callback = new Callback();
     }
@@ -463,10 +463,12 @@ class Peripheral {
 
     private class Callback extends BluetoothGattCallback {
         @Override
+        @SuppressLint("MissingPermission")
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             synchronized (Peripheral.this) {
                 switch (newState) {
                     case BluetoothGatt.STATE_CONNECTED:
+                        gatt.requestMtu(250);
                         Peripheral.this.connected = true;
                         break;
                     case BluetoothGatt.STATE_DISCONNECTED:
