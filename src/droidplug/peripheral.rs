@@ -8,7 +8,6 @@ use crate::{
 use async_trait::async_trait;
 use futures::stream::Stream;
 use jni::{
-    descriptors,
     objects::{GlobalRef, JList, JObject},
     JNIEnv,
 };
@@ -138,6 +137,7 @@ fn get_poll_result<'a: 'b, 'b>(
         .result()?
 }
 
+#[derive(Debug)]
 struct PeripheralShared {
     services: BTreeSet<Service>,
     characteristics: BTreeSet<Characteristic>,
@@ -165,7 +165,7 @@ impl Peripheral {
         })
     }
 
-    pub(crate) fn report_properties(&self, mut properties: PeripheralProperties) {
+    pub(crate) fn report_properties(&self, properties: PeripheralProperties) {
         let mut guard = self.shared.lock().unwrap();
 
         guard.properties = Some(properties);
@@ -218,7 +218,7 @@ impl api::Peripheral for Peripheral {
     }
 
     async fn properties(&self) -> Result<Option<PeripheralProperties>> {
-        let guard = self.shared.lock().unwrap();
+        let guard = self.shared.lock().map_err(Into::<Error>::into)?;
         Ok((&guard.properties).clone())
     }
 
@@ -270,7 +270,7 @@ impl api::Peripheral for Peripheral {
 
             for service in list.iter()? {
                 let service = JBluetoothGattService::from_env(env, service)?;
-                let mut characteristics = BTreeSet::new();
+                let mut characteristics = BTreeSet::<Characteristic>::new();
                 for characteristic in service.get_characteristics()? {
                     let mut descriptors = BTreeSet::new();
                     for descriptor in characteristic.get_descriptors()? {
@@ -280,18 +280,23 @@ impl api::Peripheral for Peripheral {
                             characteristic_uuid: characteristic.get_uuid()?,
                         });
                     }
-                    characteristics.insert(Characteristic {
+                    let char = Characteristic {
                         service_uuid: service.get_uuid()?,
                         uuid: characteristic.get_uuid()?,
                         properties: characteristic.get_properties()?,
                         descriptors: descriptors.clone(),
-                    });
-                    peripheral_characteristics.push(Characteristic {
-                        service_uuid: service.get_uuid()?,
-                        uuid: characteristic.get_uuid()?,
-                        properties: characteristic.get_properties()?,
-                        descriptors: descriptors,
-                    });
+                    };
+                    // Only consider the first characteristic of each UUID
+                    // This "should" be unique, but of course it's not enforced
+                    if characteristics
+                        .iter()
+                        .filter(|c| c.service_uuid == char.service_uuid && c.uuid == char.uuid)
+                        .count()
+                        == 0
+                    {
+                        characteristics.insert(char.clone());
+                        peripheral_characteristics.push(char.clone());
+                    }
                 }
                 peripheral_services.push(Service {
                     uuid: service.get_uuid()?,
@@ -299,7 +304,7 @@ impl api::Peripheral for Peripheral {
                     characteristics,
                 })
             }
-            let mut guard = self.shared.lock().unwrap();
+            let mut guard = self.shared.lock().map_err(Into::<Error>::into)?;
             guard.services = BTreeSet::from_iter(peripheral_services.clone());
             guard.characteristics = BTreeSet::from_iter(peripheral_characteristics.clone());
             Ok(())

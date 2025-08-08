@@ -208,7 +208,13 @@ impl api::Peripheral for Peripheral {
     }
 
     async fn properties(&self) -> Result<Option<PeripheralProperties>> {
-        Ok(Some(self.shared.properties.lock().unwrap().clone()))
+        Ok(Some(
+            self.shared
+                .properties
+                .lock()
+                .map_err(Into::<Error>::into)?
+                .clone(),
+        ))
     }
 
     fn services(&self) -> BTreeSet<Service> {
@@ -246,7 +252,7 @@ impl api::Peripheral for Peripheral {
             .await?;
         match fut.await {
             CoreBluetoothReply::Connected(services) => {
-                *(self.shared.services.lock().unwrap()) = services;
+                *(self.shared.services.lock().map_err(Into::<Error>::into)?) = services;
                 self.shared
                     .emit_event(CentralEvent::DeviceConnected(self.shared.uuid.into()));
             }
@@ -314,6 +320,7 @@ impl api::Peripheral for Peripheral {
             .await?;
         match fut.await {
             CoreBluetoothReply::Ok => {}
+            CoreBluetoothReply::Err(msg) => return Err(Error::RuntimeError(msg)),
             reply => panic!("Unexpected reply: {:?}", reply),
         }
         Ok(())
@@ -333,6 +340,7 @@ impl api::Peripheral for Peripheral {
             .await?;
         match fut.await {
             CoreBluetoothReply::ReadResult(chars) => Ok(chars),
+            CoreBluetoothReply::Err(msg) => return Err(Error::RuntimeError(msg)),
             _ => {
                 panic!("Shouldn't get anything but read result!");
             }
@@ -353,6 +361,7 @@ impl api::Peripheral for Peripheral {
             .await?;
         match fut.await {
             CoreBluetoothReply::Ok => trace!("subscribed!"),
+            CoreBluetoothReply::Err(msg) => return Err(Error::RuntimeError(msg)),
             _ => panic!("Didn't subscribe!"),
         }
         Ok(())
@@ -372,6 +381,7 @@ impl api::Peripheral for Peripheral {
             .await?;
         match fut.await {
             CoreBluetoothReply::Ok => {}
+            CoreBluetoothReply::Err(msg) => return Err(Error::RuntimeError(msg)),
             _ => panic!("Didn't unsubscribe!"),
         }
         Ok(())
